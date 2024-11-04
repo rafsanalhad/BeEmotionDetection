@@ -1,0 +1,8 @@
+# requirements.txt
+flask==2.0.1
+numpy==1.19.5
+opencv-python-headless==4.5.3.56
+tensorflow==2.7.0
+keras==2.7.0
+pillow==8.3.2
+python-multipart
