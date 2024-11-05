@@ -1,6 +1,0 @@
-setuptools>=65.0
-wheel
-flask==2.0.1
-numpy==1.19.5
-tensorflow==2.6.0
-python3-distutils
