@@ -5,9 +5,27 @@ from keras.preprocessing import image
 import numpy as np
 import cv2
 import os
-
+from flask import Flask, request
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.security import generate_password_hash, check_password_hash
+#import mysqlclient
 app = Flask(__name__)
-CORS(app)  # Tambahkan ini
+
+# Konfigurasi MySQL
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/db_dineserve'  # Ganti db_name dengan nama database Anda
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+db = SQLAlchemy(app)
+
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+
+with app.app_context():
+    db.create_all()
+
+CORS(app)
 emotion_model = load_model("model.keras")
 
 def facecrop(image_path):
@@ -117,5 +135,41 @@ def predict_emotion():
             os.remove(cropped_face_path)
         return jsonify({"error": f"Terjadi kesalahan: {str(e)}"}), 500
 
+@app.route("/signup", methods=["GET", "POST"])
+def signup():
+    # Ambil data dari request
+    username = request.json.get("username")
+    email = request.json.get("email")
+    password = request.json.get("password")
+
+    if not username or not email or not password:
+        return jsonify({"error": "Missing required fields"}), 400
+
+    # Cek apakah pengguna sudah ada
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({"error": "Email sudah terdaftar"}), 400
+
+    # Hash password dengan metode yang valid
+    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+
+    # Simpan data pengguna baru
+    new_user = User(username=username, email=email, password=hashed_password)
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({"message": "User created successfully!"}), 201
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    email = request.json.get("email")
+    password = request.json.get("password")
+
+    # Cari pengguna berdasarkan email
+    user = User.query.filter_by(email=email).first()
+    if user and check_password_hash(user.password, password):
+        return jsonify({"message": f"Selamat datang, {user.username}!"}), 200
+    else:
+        return jsonify({"error": "Email atau password salah"}), 400
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
