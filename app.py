@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS  # Tambahkan ini
 from keras.models import load_model
 from keras.preprocessing import image
@@ -8,12 +8,15 @@ import os
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
 #import mysqlclient
 app = Flask(__name__)
 
 # Konfigurasi MySQL
 app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/db_dineserve'  # Ganti db_name dengan nama database Anda
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['UPLOAD_FOLDER'] = 'uploads/' 
+app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
 db = SQLAlchemy(app)
 
 class User(db.Model):
@@ -21,6 +24,7 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
+    profile_picture = db.Column(db.String(120), nullable=True) 
 
 with app.app_context():
     db.create_all()
@@ -171,5 +175,72 @@ def login():
         return jsonify({"message": f"Selamat datang, {user.username}!"}), 200
     else:
         return jsonify({"error": "Email atau password salah"}), 400
+
+# Fungsi untuk memeriksa ekstensi file
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+
+@app.route("/profil", methods=["GET"])
+def get_profile():
+    try:
+        # Mendapatkan data pengguna dari query string (misalnya: user_id=1)
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+
+        user = User.query.filter_by(id=user_id).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        # Mengembalikan informasi pengguna termasuk gambar profil (jika ada)
+        profile_picture = user.profile_picture if user.profile_picture else 'default.png'
+        return jsonify({
+            "username": user.username,
+            "email": user.email,
+            "profile_picture": f"/uploads/{profile_picture}"  # Path gambar profil
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/profil/update", methods=["POST"])
+def update_profile():
+    try:
+        user_id = request.json.get('user_id')
+        username = request.json.get('username')
+        email = request.json.get('email')
+        new_password = request.json.get('password')
+        file = request.files.get('file')
+
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+        
+        user = User.query.filter_by(id=user_id).first()
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        
+        if username:
+            user.username = username
+        if email:
+            user.email = email
+        if new_password:
+            user.password = generate_password_hash(new_password, method='pbkdf2:sha256')
+
+        # Menangani upload foto profil
+        if file and allowed_file(file.filename):
+            filename = secure_filename(file.filename)
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(file_path)
+            user.profile_picture = filename
+        
+        db.session.commit()
+        return jsonify({"message": "Profile updated successfully!"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Menyajikan gambar profil yang diupload
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
