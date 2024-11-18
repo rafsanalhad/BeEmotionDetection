@@ -26,6 +26,19 @@ class User(db.Model):
     password = db.Column(db.String(200), nullable=False)
     profile_picture = db.Column(db.String(120), nullable=True) 
 
+class Reservation(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    date = db.Column(db.String(50), nullable=False)
+    time = db.Column(db.String(50), nullable=False)
+    details = db.Column(db.String(200), nullable=True)
+
+    user = db.relationship('User', backref=db.backref('reservations', lazy=True))
+
+with app.app_context():
+    db.create_all()
+
+
 with app.app_context():
     db.create_all()
 
@@ -172,7 +185,7 @@ def login():
     # Cari pengguna berdasarkan email
     user = User.query.filter_by(email=email).first()
     if user and check_password_hash(user.password, password):
-        return jsonify({"user": user.username})
+        return jsonify({id: user.id, "user": user.username})
     else:
         return jsonify({"error": "Email atau password salah"}), 400
 
@@ -241,6 +254,50 @@ def update_profile():
 @app.route('/uploads/<filename>')
 def uploaded_file(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route("/reservations", methods=["POST"])
+def create_reservation():
+    try:
+        user_id = request.json.get('user_id')
+        date = request.json.get('date')
+        time = request.json.get('time')
+        details = request.json.get('details')
+
+        if not user_id or not date or not time:
+            return jsonify({"error": "User ID, date, and time are required"}), 400
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        new_reservation = Reservation(user_id=user_id, date=date, time=time, details=details)
+        db.session.add(new_reservation)
+        db.session.commit()
+
+        return jsonify({"message": "Reservation created successfully!"}), 201
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/reservations", methods=["GET"])
+def get_reservations():
+    try:
+        user_id = request.args.get('user_id')
+        if not user_id:
+            return jsonify({"error": "User ID is required"}), 400
+
+        reservations = Reservation.query.filter_by(user_id=user_id).all()
+        if not reservations:
+            return jsonify({"message": "No reservations found"}), 404
+
+        result = [
+            {"id": r.id, "date": r.date, "time": r.time, "details": r.details}
+            for r in reservations
+        ]
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
