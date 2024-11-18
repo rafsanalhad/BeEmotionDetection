@@ -7,6 +7,7 @@ import cv2
 import os
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy import ForeignKey
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 #import mysqlclient
@@ -29,15 +30,15 @@ class User(db.Model):
 class Reservation(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(15), nullable=False)
+    email = db.Column(db.String(100), nullable=False)
     date = db.Column(db.String(50), nullable=False)
     time = db.Column(db.String(50), nullable=False)
-    details = db.Column(db.String(200), nullable=True)
+    guest_count = db.Column(db.Integer, nullable=False)
+    table_preference = db.Column(db.String(100), nullable=True)
 
     user = db.relationship('User', backref=db.backref('reservations', lazy=True))
-
-with app.app_context():
-    db.create_all()
-
 
 with app.app_context():
     db.create_all()
@@ -185,7 +186,7 @@ def login():
     # Cari pengguna berdasarkan email
     user = User.query.filter_by(email=email).first()
     if user and check_password_hash(user.password, password):
-        return jsonify({id: user.id, "user": user.username})
+        return jsonify({"id": user.id, "user": user.username})
     else:
         return jsonify({"error": "Email atau password salah"}), 400
 
@@ -258,23 +259,37 @@ def uploaded_file(filename):
 @app.route("/reservations", methods=["POST"])
 def create_reservation():
     try:
-        user_id = request.json.get('user_id')
-        date = request.json.get('date')
-        time = request.json.get('time')
-        details = request.json.get('details')
+        data = request.get_json()
 
-        if not user_id or not date or not time:
-            return jsonify({"error": "User ID, date, and time are required"}), 400
+        # Ambil data dari request body
+        user_id = data.get('user_id')
+        name = data.get('name')
+        phone = data.get('phone')
+        email = data.get('email')
+        date = data.get('date')
+        time = data.get('time')
+        guest_count = data.get('guest_count')
+        table_preference = data.get('table_preference')
 
-        user = User.query.get(user_id)
-        if not user:
-            return jsonify({"error": "User not found"}), 404
+        if not user_id or not name or not phone or not email or not date or not time:
+            return jsonify({"error": "Missing required fields"}), 400
 
-        new_reservation = Reservation(user_id=user_id, date=date, time=time, details=details)
+        # Simpan ke database
+        new_reservation = Reservation(
+            user_id=user_id,
+            name=name,
+            phone=phone,
+            email=email,
+            date=date,
+            time=time,
+            guest_count=guest_count,
+            table_preference=table_preference
+        )
         db.session.add(new_reservation)
         db.session.commit()
 
-        return jsonify({"message": "Reservation created successfully!"}), 201
+        return jsonify({"message": "Reservation created successfully"}), 201
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -291,7 +306,7 @@ def get_reservations():
             return jsonify({"message": "No reservations found"}), 404
 
         result = [
-            {"id": r.id, "date": r.date, "time": r.time, "details": r.details}
+            {"id": r.id, "name": r.name, "date": r.date, "time": r.time, "details": r.details, "guest_count": r.guest_count, "table_preference": r.table_preference}
             for r in reservations
         ]
         return jsonify(result), 200
