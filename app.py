@@ -31,7 +31,6 @@ class Reservation(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     date = db.Column(db.String(50), nullable=False)
     time = db.Column(db.String(50), nullable=False)
-    details = db.Column(db.String(200), nullable=True)
     name = db.Column(db.String(100), nullable=False)
     phone = db.Column(db.String(15), nullable=False)
     email = db.Column(db.String(100), nullable=False)
@@ -262,7 +261,6 @@ def create_reservation():
         user_id = request.json.get('user_id')
         date = request.json.get('date')
         time = request.json.get('time')
-        details = request.json.get('details')
         name = request.json.get('name')
         phone = request.json.get('phone')
         email = request.json.get('email')
@@ -276,7 +274,7 @@ def create_reservation():
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        new_reservation = Reservation(user_id=user_id, date=date, time=time, details=details, name = name, phone=phone, email=email, guest_count=guest_count, table_preference=table_preference)
+        new_reservation = Reservation(user_id=user_id, date=date, time=time, name = name, phone=phone, email=email, guest_count=guest_count, table_preference=table_preference)
         db.session.add(new_reservation)
         db.session.commit()
 
