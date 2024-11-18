@@ -172,7 +172,7 @@ def login():
     # Cari pengguna berdasarkan email
     user = User.query.filter_by(email=email).first()
     if user and check_password_hash(user.password, password):
-        return jsonify({"message": f"Selamat datang, {user.username}!"}), 200
+        return jsonify({"user": user.username})
     else:
         return jsonify({"error": "Email atau password salah"}), 400
 
