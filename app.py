@@ -9,6 +9,7 @@ from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+import time
 #import mysqlclient
 app = Flask(__name__)
 
@@ -201,16 +202,16 @@ def get_profile():
         if not user_id:
             return jsonify({"error": "User ID is required"}), 400
 
-        user = User.query.filter_by(id=user_id).first()
+        user = User.query.filter_by(username=user_id).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
         
         # Mengembalikan informasi pengguna termasuk gambar profil (jika ada)
-        profile_picture = user.profile_picture if user.profile_picture else 'default.png'
+        profile_picture = user.profile_picture if user.profile_picture else 'default.jpg'
         return jsonify({
             "username": user.username,
             "email": user.email,
-            "profile_picture": f"/uploads/{profile_picture}"  # Path gambar profil
+            "profile_picture": f"{profile_picture}"  # Path gambar profil
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -218,19 +219,37 @@ def get_profile():
 @app.route("/profil/update", methods=["POST"])
 def update_profile():
     try:
-        user_id = request.json.get('user_id')
-        username = request.json.get('username')
-        email = request.json.get('email')
-        new_password = request.json.get('password')
-        file = request.files.get('file')
-
+        # Ambil data dari form
+        user_id = request.form.get('user_id')
+        username = request.form.get('username')
+        email = request.form.get('email')
+        new_password = request.form.get('password')
+        
+        # Validasi User ID
         if not user_id:
             return jsonify({"error": "User ID is required"}), 400
+
+        # Cari user berdasarkan username atau id
+        user = User.query.filter(
+            (User.username == user_id) | (User.id == user_id)
+        ).first()
         
-        user = User.query.filter_by(id=user_id).first()
         if not user:
             return jsonify({"error": "User not found"}), 404
-        
+
+        # Cek apakah username baru sudah digunakan (jika username diubah)
+        if username and username != user.username:
+            existing_user = User.query.filter_by(username=username).first()
+            if existing_user:
+                return jsonify({"error": "Username already taken"}), 400
+
+        # Cek apakah email baru sudah digunakan (jika email diubah)
+        if email and email != user.email:
+            existing_email = User.query.filter_by(email=email).first()
+            if existing_email:
+                return jsonify({"error": "Email already taken"}), 400
+
+        # Update data profil
         if username:
             user.username = username
         if email:
@@ -238,16 +257,42 @@ def update_profile():
         if new_password:
             user.password = generate_password_hash(new_password, method='pbkdf2:sha256')
 
-        # Menangani upload foto profil
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(file_path)
-            user.profile_picture = filename
-        
+        # Handling file upload
+        if 'file' in request.files:
+            file = request.files['file']
+            if file and allowed_file(file.filename):
+                # Buat folder uploads jika belum ada
+                os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+                
+                # Generate unique filename
+                filename = secure_filename(f"profile_{user.id}_{int(time.time())}.{file.filename.rsplit('.', 1)[1].lower()}")
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+                
+                # Hapus file profil lama jika ada
+                if user.profile_picture and user.profile_picture != 'default.jpg':
+                    old_file_path = os.path.join(app.config['UPLOAD_FOLDER'], user.profile_picture)
+                    if os.path.exists(old_file_path):
+                        os.remove(old_file_path)
+                
+                # Simpan file baru
+                file.save(file_path)
+                user.profile_picture = filename
+
+        # Simpan perubahan ke database
         db.session.commit()
-        return jsonify({"message": "Profile updated successfully!"}), 200
+        
+        return jsonify({
+            "message": "Profile updated successfully!",
+            "user": {
+                "username": user.username,
+                "email": user.email,
+                "profile_picture": user.profile_picture
+            }
+        }), 200
+
     except Exception as e:
+        db.session.rollback()
+        print(f"Error updating profile: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
 # Menyajikan gambar profil yang diupload
@@ -295,7 +340,7 @@ def get_reservations():
             return jsonify({"message": "No reservations found"}), 404
 
         result = [
-            {"id": r.id, "date": r.date, "time": r.time, "details": r.details}
+            {"id": r.id, "date": r.date, "time": r.time, "name": r.name, "phone": r.phone, "email": r.email, "guest_count": r.guest_count, "table_preference": r.table_preference}
             for r in reservations
         ]
         return jsonify(result), 200
