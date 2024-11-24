@@ -40,6 +40,14 @@ class Reservation(db.Model):
 
     user = db.relationship('User', backref=db.backref('reservations', lazy=True))
 
+class Review(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    rating = db.Column(db.Integer, nullable=False)
+    comment = db.Column(db.String(500), nullable=True)
+
+    user = db.relationship('User', backref=db.backref('reviews', lazy=True))
+
 with app.app_context():
     db.create_all()
 
@@ -326,26 +334,50 @@ def create_reservation():
         return jsonify({"message": "Reservation created successfully!"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
+    
 @app.route("/reservations", methods=["GET"])
 def get_reservations():
     try:
         user_id = request.args.get('user_id')
         if not user_id:
             return jsonify({"error": "User ID is required"}), 400
-
         reservations = Reservation.query.filter_by(user_id=user_id).all()
         if not reservations:
             return jsonify({"message": "No reservations found"}), 404
-
         result = [
-            {"id": r.id, "date": r.date, "time": r.time, "name": r.name, "phone": r.phone, "email": r.email, "guest_count": r.guest_count, "table_preference": r.table_preference}
+            {"user_id": user_id, "date": r.date, "time": r.time, "name": r.name, "phone": r.phone, "email": r.email, "guest_count": r.guest_count, "table_preference": r.table_preference}
             for r in reservations
         ]
         return jsonify(result), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route("/review", methods=["POST"])
+def create_review():
+    try:
+        # Ambil data review dari request
+        user_id = request.json.get("user_id")
+        rating = request.json.get("rating")  # Rating berupa angka (1-5 misalnya)
+        comment = request.json.get("comment")
+
+        if not user_id or not rating:
+            return jsonify({"error": "User ID dan rating diperlukan"}), 400
+
+        # Validasi rating
+        if rating < 1 or rating > 5:
+            return jsonify({"error": "Rating harus antara 1 hingga 5"}), 400
+
+        # Simpan review ke dalam database
+        new_review = Review(user_id=user_id, rating=rating, comment=comment)
+        db.session.add(new_review)
+        db.session.commit()
+
+        return jsonify({"message": "Review berhasil ditambahkan!"}), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+    
 
 
 if __name__ == "__main__":
