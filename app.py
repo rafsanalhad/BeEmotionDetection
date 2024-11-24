@@ -358,7 +358,7 @@ def create_review():
     try:
         # Ambil data review dari request
         user_id = request.json.get("user_id")
-        rating = request.json.get("rating")  # Rating berupa angka (1-5 misalnya)
+        rating = request.json.get("rating")
         comment = request.json.get("comment")
 
         if not user_id or not rating:
@@ -376,6 +376,31 @@ def create_review():
         return jsonify({"message": "Review berhasil ditambahkan!"}), 201
     except Exception as e:
         db.session.rollback()
+        return jsonify({"error": str(e)}), 500
+    
+@app.route("/reviews", methods=["GET"])
+def get_reviews():
+    try:
+        reviews = Review.query.all()  # Fetch all reviews from the database
+        if not reviews:
+            return jsonify({"message": "No reviews found"}), 404
+
+        result = []
+        for review in reviews:
+            user = User.query.get(review.user_id)
+            review_data = {
+                "id": review.id,
+                "user_id": review.user_id,
+                "rating": review.rating,
+                "comment": review.comment,
+                "username": user.username,  # Include the username of the reviewer
+                "email": user.email  # You can also include the email if needed
+            }
+            result.append(review_data)
+
+        return jsonify({"reviews": result}), 200
+
+    except Exception as e:
         return jsonify({"error": str(e)}), 500
     
 
