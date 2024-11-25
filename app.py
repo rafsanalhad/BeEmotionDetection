@@ -10,6 +10,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import time
+from flask_midtrans import Midtrans
 #import mysqlclient
 app = Flask(__name__)
 
@@ -18,6 +19,11 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/db_dineserve'  
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['UPLOAD_FOLDER'] = 'uploads/' 
 app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+
+app.config['MIDTRANS_CLIENT_KEY'] = 'SB-Mid-client-fYNesiJkhiDHZ6SE'
+app.config['MIDTRANS_SERVER_KEY'] = 'SB-Mid-server-1B6sXeuzYdwoGbBOnf8HTT3m'
+app.config['MIDTRANS_IS_PRODUCTION'] = False
+
 db = SQLAlchemy(app)
 
 class User(db.Model):
@@ -53,6 +59,9 @@ with app.app_context():
 
 CORS(app)
 emotion_model = load_model("model.keras")
+
+# instance
+midtrans = Midtrans(app)
 
 def facecrop(image_path):
     try:
@@ -402,7 +411,53 @@ def get_reviews():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
+@app.route('/payment', methods=["POST"])
+def hello_world():
+    id = request.json.get("id")
+    production_name = request.json.get("production_name")
+    price = request.json.get("price")
+    param = {
+        "transaction_details": {
+            "order_id": id,
+            "gross_amount": price
+        }, "credit_card": {
+            "secure": True
+        }
+    }
+
+    # midtrans.snap or midtrans.core
+    # https://github.com/Midtrans/midtrans-python-client
+    response = midtrans.snap.create_transaction(param)
+
+    response_data = {
+        'token': response['token'],
+    }
+    # >> response
+    #  {'token': 'thistoken', 'redirect_url': 'http://midtrans..'}
+    return jsonify(response_data), 200
+
+@app.route('/payment/finish', methods=['POST', 'GET'])
+def payment_finish():
+    if request.method == 'POST':
+        # Tangani data callback dari Midtrans
+        data = request.json
+        if not data:
+            return jsonify({'status': 'error', 'message': 'No data received'}), 400
+        
+        # Lakukan sesuatu dengan data transaksi, misalnya menyimpan ke database
+        transaction_status = data.get('transaction_status')
+        order_id = data.get('order_id')
+        print(f"Order ID: {order_id}, Status: {transaction_status}")
+
+        # Perbarui status transaksi di database (contoh kode)
+        # update_transaction_status(order_id, transaction_status)
+
+        return jsonify({'status': 'success'}), 200
+
+    elif request.method == 'GET':
+        # Tangani redirect setelah pembayaran selesai
+        return redirect("myapp://payment-finish", code=302)
 
 
 if __name__ == "__main__":
