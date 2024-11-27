@@ -11,18 +11,21 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 import time
 from flask_midtrans import Midtrans
+from dotenv import load_dotenv
 #import mysqlclient
+load_dotenv()
+
 app = Flask(__name__)
 
-# Konfigurasi MySQL
-app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://root:@localhost/db_dineserve'  # Ganti db_name dengan nama database Anda
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['UPLOAD_FOLDER'] = 'uploads/' 
-app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif'}
+# Konfigurasi dari .env
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = os.getenv('SQLALCHEMY_TRACK_MODIFICATIONS') == 'True'
+app.config['UPLOAD_FOLDER'] = os.getenv('UPLOAD_FOLDER')
+app.config['ALLOWED_EXTENSIONS'] = set(os.getenv('ALLOWED_EXTENSIONS').split(','))
 
-app.config['MIDTRANS_CLIENT_KEY'] = 'SB-Mid-client-fYNesiJkhiDHZ6SE'
-app.config['MIDTRANS_SERVER_KEY'] = 'SB-Mid-server-1B6sXeuzYdwoGbBOnf8HTT3m'
-app.config['MIDTRANS_IS_PRODUCTION'] = False
+app.config['MIDTRANS_CLIENT_KEY'] = os.getenv('MIDTRANS_CLIENT_KEY')
+app.config['MIDTRANS_SERVER_KEY'] = os.getenv('MIDTRANS_SERVER_KEY')
+app.config['MIDTRANS_IS_PRODUCTION'] = os.getenv('MIDTRANS_IS_PRODUCTION') == 'True'
 
 db = SQLAlchemy(app)
 
@@ -453,7 +456,7 @@ def payment_finish():
         # Perbarui status transaksi di database (contoh kode)
         # update_transaction_status(order_id, transaction_status)
 
-        return jsonify({'status': 'success'}), 200
+        return jsonify({'transactionStatus': transaction_status}), 200
 
     elif request.method == 'GET':
         # Tangani redirect setelah pembayaran selesai
