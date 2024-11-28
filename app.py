@@ -12,6 +12,7 @@ from werkzeug.utils import secure_filename
 import time
 from flask_midtrans import Midtrans
 from dotenv import load_dotenv
+from datetime import datetime
 #import mysqlclient
 load_dotenv()
 
@@ -37,7 +38,7 @@ class User(db.Model):
     profile_picture = db.Column(db.String(120), nullable=True) 
 
 class Reservation(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.String(100), nullable=False, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     date = db.Column(db.String(50), nullable=False)
     time = db.Column(db.String(50), nullable=False)
@@ -46,8 +47,20 @@ class Reservation(db.Model):
     email = db.Column(db.String(100), nullable=False)
     guest_count = db.Column(db.Integer, nullable=False)
     table_preference = db.Column(db.String(100), nullable=True)
-
+    transaction_id = db.Column(db.String(100), nullable=True)
     user = db.relationship('User', backref=db.backref('reservations', lazy=True))
+
+class Transaction(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    transaction_id = db.Column(db.String(100), unique=True, nullable=False)
+    reservation_id = db.Column(db.String(100), db.ForeignKey('reservation.id'), nullable=False)
+    transaction_time = db.Column(db.DateTime, nullable=False)
+    transaction_status = db.Column(db.String(50), nullable=False)
+    payment_type = db.Column(db.String(50), nullable=False)
+    order_id = db.Column(db.String(100), unique=True, nullable=False)
+    status = db.Column(db.String(50), nullable=False)
+
+    reservation = db.relationship('Reservation', backref=db.backref('payment', lazy=True))
 
 class Review(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -323,6 +336,7 @@ def uploaded_file(filename):
 @app.route("/reservations", methods=["POST"])
 def create_reservation():
     try:
+        id= request.json.get('id')
         user_id = request.json.get('user_id')
         date = request.json.get('date')
         time = request.json.get('time')
@@ -331,6 +345,7 @@ def create_reservation():
         email = request.json.get('email')
         guest_count = request.json.get('guest_count')
         table_preference = request.json.get('table_preference')
+        transaction_id = request.json.get('transaction_id')
 
         if not user_id or not date or not time:
             return jsonify({"error": "User ID, date, and time are required"}), 400
@@ -339,7 +354,7 @@ def create_reservation():
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        new_reservation = Reservation(user_id=user_id, date=date, time=time, name = name, phone=phone, email=email, guest_count=guest_count, table_preference=table_preference)
+        new_reservation = Reservation(id=id, user_id=user_id, date=date, time=time, name = name, phone=phone, email=email, guest_count=guest_count, table_preference=table_preference, transaction_id=transaction_id)
         db.session.add(new_reservation)
         db.session.commit()
 
@@ -440,7 +455,7 @@ def hello_world():
     #  {'token': 'thistoken', 'redirect_url': 'http://midtrans..'}
     return jsonify(response_data), 200
 
-@app.route('/payment/finish', methods=['POST', 'GET'])
+@app.route('/payment/finish', methods=['POST'])
 def payment_finish():
     if request.method == 'POST':
         # Tangani data callback dari Midtrans
@@ -448,19 +463,43 @@ def payment_finish():
         if not data:
             return jsonify({'status': 'error', 'message': 'No data received'}), 400
         
-        # Lakukan sesuatu dengan data transaksi, misalnya menyimpan ke database
+        # Ambil data penting dari JSON
         transaction_status = data.get('transaction_status')
+        transaction_id = data.get('transaction_id')
+        transaction_time = datetime.now()
+        reservation_id = data.get('reservation_id')
+        payment_type = data.get('payment_type')
         order_id = data.get('order_id')
-        print(f"Order ID: {order_id}, Status: {transaction_status}")
+        status = data.get('status')
 
-        # Perbarui status transaksi di database (contoh kode)
-        # update_transaction_status(order_id, transaction_status)
+        # Validasi data yang diperlukan
+        if not transaction_id or not order_id:
+            return jsonify({'status': 'error', 'message': 'Missing required fields'}), 400
 
-        return jsonify({'transactionStatus': transaction_status}), 200
+        try:
+            # Simpan transaksi ke database
+            new_transaction = Transaction(
+                transaction_id=transaction_id,
+                transaction_time=transaction_time,
+                reservation_id=reservation_id,
+                transaction_status=transaction_status,
+                payment_type=payment_type,
+                order_id=order_id,
+                status=status,
+            )
+            db.session.add(new_transaction)
+            db.session.commit()
 
-    elif request.method == 'GET':
-        # Tangani redirect setelah pembayaran selesai
-        return redirect("myapp://payment-finish", code=302)
+            return jsonify({'status': 'success', 'message': 'Transaction saved successfully'}), 200
+
+        except Exception as e:
+            db.session.rollback()
+            # Menambahkan traceback untuk membantu debugging
+            print("Error occurred during transaction processing:")
+            print(str(e))  # Log error message
+            return jsonify({'status': 'error', 'message': str(e)}), 500
+
+    return jsonify({'status': 'error', 'message': 'Invalid request method'}), 405
 
 
 if __name__ == "__main__":
