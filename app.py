@@ -46,8 +46,8 @@ class Reservation(db.Model):
     phone = db.Column(db.String(15), nullable=False)
     email = db.Column(db.String(100), nullable=False)
     guest_count = db.Column(db.Integer, nullable=False)
-    table_preference = db.Column(db.String(100), nullable=True)
     transaction_id = db.Column(db.String(100), nullable=True)
+    table_id = db.Column(db.Integer, db.ForeignKey('table.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('reservations', lazy=True))
 
 class Transaction(db.Model):
@@ -70,8 +70,51 @@ class Review(db.Model):
 
     user = db.relationship('User', backref=db.backref('reviews', lazy=True))
 
+
+class Table(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    table_number = db.Column(db.String(10), unique=True, nullable=False) 
+    capacity = db.Column(db.Integer, nullable=False)
+    location = db.Column(db.String(50), nullable=True)
+    reservations = db.relationship('Reservation', backref='table', lazy=True)
+
+def seed_tables():
+    if Table.query.count() > 0:
+        print("Data sudah ada di tabel, tidak menambahkan data baru.")
+        return
+
+    tables = [
+        {"table_number": "A1", "capacity": 4, "location": "Indoor - Near Entrance"},
+        {"table_number": "A2", "capacity": 4, "location": "Indoor - Center of Hall"},
+        {"table_number": "A3", "capacity": 6, "location": "Indoor - Corner Section"},
+        {"table_number": "B1", "capacity": 2, "location": "Outdoor - Near Garden"},
+        {"table_number": "B2", "capacity": 2, "location": "Outdoor - Patio Section"},
+        {"table_number": "B3", "capacity": 4, "location": "Outdoor - Near Fountain"},
+        {"table_number": "C1", "capacity": 4, "location": "Near Window - Garden View"},
+        {"table_number": "C2", "capacity": 6, "location": "Near Window - Street View"},
+        {"table_number": "D1", "capacity": 8, "location": "Private Room - VIP Section"},
+        {"table_number": "D2", "capacity": 10, "location": "Private Room - Family Section"},
+    ]
+
+    for table_data in tables:
+        table = Table(
+            table_number=table_data["table_number"],
+            capacity=table_data["capacity"],
+            location=table_data["location"]
+        )
+        db.session.add(table)
+
+    db.session.commit()
+    print("10 tables have been added to the database.")
+
+
 with app.app_context():
     db.create_all()
+    try:
+        seed_tables()
+    except Exception as e:
+        print(f"Seeder error: {e}")
+
 
 CORS(app)
 emotion_model = load_model("model.keras")
@@ -344,7 +387,7 @@ def create_reservation():
         phone = request.json.get('phone')
         email = request.json.get('email')
         guest_count = request.json.get('guest_count')
-        table_preference = request.json.get('table_preference')
+        table_id = request.json.get('table_id')
         transaction_id = request.json.get('transaction_id')
 
         if not user_id or not date or not time:
@@ -354,13 +397,32 @@ def create_reservation():
         if not user:
             return jsonify({"error": "User not found"}), 404
 
-        new_reservation = Reservation(id=id, user_id=user_id, date=date, time=time, name = name, phone=phone, email=email, guest_count=guest_count, table_preference=table_preference, transaction_id=transaction_id)
+        new_reservation = Reservation(id=id, user_id=user_id, date=date, time=time, name = name, phone=phone, email=email, guest_count=guest_count, table_id=table_id, transaction_id=transaction_id)
         db.session.add(new_reservation)
         db.session.commit()
 
         return jsonify({"message": "Reservation created successfully!"}), 201
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+@app.route('/getAllTables', methods=['GET'])
+def get_all_tables():
+    tables = Table.query.all()
+
+    if not tables:
+        return jsonify({'message': 'No tables found'}), 404
+
+    tables_data = []
+    for table in tables:
+        table_data = {
+            'id': table.id,
+            'table_number': table.table_number,
+            'capacity': table.capacity,
+            'location': table.location
+        }
+        tables_data.append(table_data)
+
+    return jsonify({'tables': tables_data}), 200
     
 @app.route("/reservations", methods=["GET"])
 def get_reservations():
@@ -372,7 +434,7 @@ def get_reservations():
         if not reservations:
             return jsonify({"message": "No reservations found"}), 404
         result = [
-            {"user_id": user_id, "date": r.date, "time": r.time, "name": r.name, "phone": r.phone, "email": r.email, "guest_count": r.guest_count, "table_preference": r.table_preference}
+            {"user_id": user_id, "date": r.date, "time": r.time, "name": r.name, "phone": r.phone, "email": r.email, "guest_count": r.guest_count, "table_id": r.table_id}
             for r in reservations
         ]
         return jsonify(result), 200
