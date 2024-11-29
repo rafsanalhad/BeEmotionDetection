@@ -46,7 +46,7 @@ class Reservation(db.Model):
     phone = db.Column(db.String(15), nullable=False)
     email = db.Column(db.String(100), nullable=False)
     guest_count = db.Column(db.Integer, nullable=False)
-    transaction_id = db.Column(db.String(100), nullable=True)
+    transaction_id = db.Column(db.String(100), nullable=False)
     table_id = db.Column(db.Integer, db.ForeignKey('table.id'), nullable=False)
     user = db.relationship('User', backref=db.backref('reservations', lazy=True))
 
@@ -84,16 +84,16 @@ def seed_tables():
         return
 
     tables = [
-        {"table_number": "A1", "capacity": 4, "location": "Indoor - Near Entrance"},
-        {"table_number": "A2", "capacity": 4, "location": "Indoor - Center of Hall"},
+        {"table_number": "A1", "capacity": 6, "location": "Indoor - Near Entrance"},
+        {"table_number": "A2", "capacity": 6, "location": "Indoor - Center of Hall"},
         {"table_number": "A3", "capacity": 6, "location": "Indoor - Corner Section"},
-        {"table_number": "B1", "capacity": 2, "location": "Outdoor - Near Garden"},
-        {"table_number": "B2", "capacity": 2, "location": "Outdoor - Patio Section"},
-        {"table_number": "B3", "capacity": 4, "location": "Outdoor - Near Fountain"},
-        {"table_number": "C1", "capacity": 4, "location": "Near Window - Garden View"},
+        {"table_number": "B1", "capacity": 6, "location": "Outdoor - Near Garden"},
+        {"table_number": "B2", "capacity": 6, "location": "Outdoor - Patio Section"},
+        {"table_number": "B3", "capacity": 6, "location": "Outdoor - Near Fountain"},
+        {"table_number": "C1", "capacity": 6, "location": "Near Window - Garden View"},
         {"table_number": "C2", "capacity": 6, "location": "Near Window - Street View"},
-        {"table_number": "D1", "capacity": 8, "location": "Private Room - VIP Section"},
-        {"table_number": "D2", "capacity": 10, "location": "Private Room - Family Section"},
+        {"table_number": "D1", "capacity": 6, "location": "Private Room - VIP Section"},
+        {"table_number": "D2", "capacity": 6, "location": "Private Room - Family Section"},
     ]
 
     for table_data in tables:
@@ -562,6 +562,24 @@ def payment_finish():
             return jsonify({'status': 'error', 'message': str(e)}), 500
 
     return jsonify({'status': 'error', 'message': 'Invalid request method'}), 405
+
+@app.route('/check_reservation', methods=['POST'])
+def check_reservation():
+    data = request.get_json()
+
+    if not all(key in data for key in ['date', 'time', 'table_id']):
+        return jsonify({'error': 'Missing required parameters'}), 400
+
+    date = data['date']
+    time = data['time']
+    table_id = data['table_id']
+
+    reservation = Reservation.query.filter_by(date=date, time=time, table_id=table_id).first()
+
+    if reservation:
+        return jsonify({'message': 'Sorry, this table is already reserved at this time and date.'}), 400
+    else:
+        return jsonify({'message': 'Table is available for reservation.'}), 200
 
 
 if __name__ == "__main__":
