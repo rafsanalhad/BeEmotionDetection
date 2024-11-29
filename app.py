@@ -35,7 +35,8 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
-    profile_picture = db.Column(db.String(120), nullable=True) 
+    profile_picture = db.Column(db.String(120), nullable=True)
+    role = db.Column(db.String(50), nullable=True) 
 
 class Reservation(db.Model):
     id = db.Column(db.String(100), nullable=False, primary_key=True)
@@ -67,6 +68,7 @@ class Review(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     rating = db.Column(db.Integer, nullable=False)
     comment = db.Column(db.String(500), nullable=True)
+    date= db.Column(db.DateTime, nullable=False, default=datetime.now)
 
     user = db.relationship('User', backref=db.backref('reviews', lazy=True))
 
@@ -248,7 +250,7 @@ def signup():
     hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
 
     # Simpan data pengguna baru
-    new_user = User(username=username, email=email, password=hashed_password)
+    new_user = User(username=username, email=email, password=hashed_password, role='member')
     db.session.add(new_user)
     db.session.commit()
 
@@ -262,7 +264,7 @@ def login():
     # Cari pengguna berdasarkan email
     user = User.query.filter_by(email=email).first()
     if user and check_password_hash(user.password, password):
-        return jsonify({"id": user.id, "user": user.username})
+        return jsonify({"id": user.id, "user": user.username, "role": user.role}), 200
     else:
         return jsonify({"error": "Email atau password salah"}), 400
 
@@ -430,14 +432,32 @@ def get_reservations():
         user_id = request.args.get('user_id')
         if not user_id:
             return jsonify({"error": "User ID is required"}), 400
-        reservations = Reservation.query.filter_by(user_id=user_id).all()
-        if not reservations:
-            return jsonify({"message": "No reservations found"}), 404
-        result = [
-            {"user_id": user_id, "date": r.date, "time": r.time, "name": r.name, "phone": r.phone, "email": r.email, "guest_count": r.guest_count, "table_id": r.table_id}
+
+        user = User.query.get(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        if user.role == 'admin':
+            reservations = Reservation.query.all()
+        else:
+            reservations = Reservation.query.filter_by(user_id=user_id).all()
+
+        reservations_data = [
+            {   "id": r.id,
+                "user_id": r.user_id,
+                "username": r.user.username,
+                "date": r.date,
+                "time": r.time,
+                "name": r.name,
+                "phone": r.phone,
+                "email": r.email,
+                "guest_count": r.guest_count,
+                "table_id": r.table_id,
+                "table_number": r.table.table_number,
+            }
             for r in reservations
         ]
-        return jsonify(result), 200
+        return jsonify(reservations_data), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -449,6 +469,7 @@ def create_review():
         user_id = request.json.get("user_id")
         rating = request.json.get("rating")
         comment = request.json.get("comment")
+        date= datetime.now()
 
         if not user_id or not rating:
             return jsonify({"error": "User ID dan rating diperlukan"}), 400
@@ -458,7 +479,7 @@ def create_review():
             return jsonify({"error": "Rating harus antara 1 hingga 5"}), 400
 
         # Simpan review ke dalam database
-        new_review = Review(user_id=user_id, rating=rating, comment=comment)
+        new_review = Review(user_id=user_id, rating=rating, comment=comment, date=date)
         db.session.add(new_review)
         db.session.commit()
 
@@ -483,7 +504,8 @@ def get_reviews():
                 "rating": review.rating,
                 "comment": review.comment,
                 "username": user.username,  # Include the username of the reviewer
-                "email": user.email  # You can also include the email if needed
+                "email": user.email,  # You can also include the email if needed
+                "date": review.date
             }
             result.append(review_data)
 
