@@ -92,6 +92,15 @@ class Refund(db.Model):
 
     reservation = db.relationship('User', backref=db.backref('refund', lazy=True))
 
+class Notification(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    message = db.Column(db.String(500), nullable=False)
+    status = db.Column(db.String(50), nullable=False, default="unread")  # status: 'unread' or 'read'
+    timestamp = db.Column(db.DateTime, default=datetime.now)
+
+    user = db.relationship('User', backref=db.backref('notifications', lazy=True))
+
 def seed_tables():
     if Table.query.count() > 0:
         print("Data sudah ada di tabel, tidak menambahkan data baru.")
@@ -412,7 +421,9 @@ def create_reservation():
             return jsonify({"error": "User not found"}), 404
 
         new_reservation = Reservation(id=id, user_id=user_id, date=date, time=time, name = name, phone=phone, email=email, guest_count=guest_count, table_id=table_id, transaction_id=transaction_id)
+        new_notification = Notification(user_id=user_id, message=f"Reservation telah berhasil di tanggal {date} dan jam {time}. Reservasi ID: {id}")
         db.session.add(new_reservation)
+        db.session.add(new_notification)
         db.session.commit()
 
         return jsonify({"message": "Reservation created successfully!"}), 201
@@ -632,6 +643,8 @@ def delete_reservation(reservation_id):
         if not transaction:
             return jsonify({"message": "Transaction not found"}), 404
 
+        new_notification = Notification(user_id=reservation.user_id, message=f"Reservasi {reservation_id} telah berhasil dibatalkan. Silahkan menunggu informasi pengembalian dana")
+
         # Buat refund baru
         new_refund = Refund(
             transaction_id=transaction.transaction_id,
@@ -644,6 +657,7 @@ def delete_reservation(reservation_id):
             status="Belum diproses",
         )
         db.session.add(new_refund)
+        db.session.add(new_notification)
 
         # Hapus reservasi dan transaksi
         db.session.delete(transaction)
@@ -701,8 +715,29 @@ def manage_refund(id):
             return jsonify({'error': 'Refund has already been processed'}), 400
 
         refund.status = data['status']
+        new_notifcation = Notification(user_id=refund.user_id, message=f"Refund {data['id']} telah {data['status']}")
+        db.session.add(new_notifcation)
         db.session.commit()
         return jsonify({'message': f'Refund {data["status"]} successfully'}), 200
+    
+@app.route('/notifications/<int:id>', methods=['GET'])
+def get_notification_by_id(id):
+    notification = Notification.query.filter_by(user_id=id).all()
+    if not notification:
+        return jsonify({'error': 'Notification not found'}), 404
+    
+    notification_data = []
+    for notificationRaw in notification:
+        notificationTemp = {
+        'id': notificationRaw.id,
+        'user_id': notificationRaw.user_id,
+        'message': notificationRaw.message,
+        'status': notificationRaw.status,
+        'timestamp': notificationRaw.timestamp
+        }
+        notification_data.append(notificationTemp)
+
+    return jsonify({'notif': notification_data}), 200
 
 
 
