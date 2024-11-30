@@ -52,8 +52,7 @@ class Reservation(db.Model):
     user = db.relationship('User', backref=db.backref('reservations', lazy=True))
 
 class Transaction(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    transaction_id = db.Column(db.String(100), unique=True, nullable=False)
+    transaction_id = db.Column(db.String(100), primary_key=True, unique=True, nullable=False)
     reservation_id = db.Column(db.String(100), db.ForeignKey('reservation.id'), nullable=False)
     transaction_time = db.Column(db.DateTime, nullable=False)
     transaction_status = db.Column(db.String(50), nullable=False)
@@ -79,6 +78,19 @@ class Table(db.Model):
     capacity = db.Column(db.Integer, nullable=False)
     location = db.Column(db.String(50), nullable=True)
     reservations = db.relationship('Reservation', backref='table', lazy=True)
+
+class Refund(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    reservation_id = db.Column(db.String(100), nullable=False)
+    transaction_id = db.Column(db.String(100), unique=True, nullable=False)
+    transaction_time = db.Column(db.DateTime, nullable=False)
+    transaction_status = db.Column(db.String(50), nullable=False)
+    payment_type = db.Column(db.String(50), nullable=False)
+    order_id = db.Column(db.String(100), unique=True, nullable=False)
+    status = db.Column(db.String(50), nullable=False)
+
+    reservation = db.relationship('User', backref=db.backref('refund', lazy=True))
 
 def seed_tables():
     if Table.query.count() > 0:
@@ -602,6 +614,96 @@ def check_reservation():
         return jsonify({'message': 'Sorry, this table is already reserved at this time and date.'}), 400
     else:
         return jsonify({'message': 'Table is available for reservation.'}), 200
+
+@app.route('/reservations/<string:reservation_id>', methods=['DELETE'])
+def delete_reservation(reservation_id):
+    try:
+        print(reservation_id)
+        # Cari reservasi berdasarkan ID
+        reservation = Reservation.query.get(reservation_id)
+        if not reservation:
+            return jsonify({"message": "Reservation not found"}), 404
+
+        # Validasi keberadaan transaksi
+        if not reservation.transaction_id:
+            return jsonify({"message": "No transaction associated with this reservation"}), 400
+        
+        transaction = Transaction.query.get(reservation.transaction_id)
+        if not transaction:
+            return jsonify({"message": "Transaction not found"}), 404
+
+        # Buat refund baru
+        new_refund = Refund(
+            transaction_id=transaction.transaction_id,
+            reservation_id=reservation_id,
+            user_id=reservation.user_id,
+            transaction_time=transaction.transaction_time,
+            transaction_status=transaction.transaction_status,
+            payment_type=transaction.payment_type,
+            order_id=transaction.order_id,
+            status="Belum diproses",
+        )
+        db.session.add(new_refund)
+
+        # Hapus reservasi dan transaksi
+        db.session.delete(transaction)
+        db.session.delete(reservation)
+        db.session.commit()
+
+        return jsonify({"message": "Reservation cancelled successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"message": "An error occurred", "error": str(e)}), 500
+
+@app.route('/refunds', methods=['GET'])
+def get_all_refunds():
+    refunds = Refund.query.all()
+    result = []
+    for refund in refunds:
+        result.append({
+            'id': refund.id,
+            'user_id': refund.user_id,
+            'reservation_id': refund.reservation_id,
+            'transaction_id': refund.transaction_id,
+            'transaction_time': refund.transaction_time,
+            'transaction_status': refund.transaction_status,
+            'payment_type': refund.payment_type,
+            'order_id': refund.order_id,
+            'status': refund.status
+        })
+    return jsonify(result), 200
+
+@app.route('/refunds/<int:id>', methods=['GET', 'PUT'])
+def manage_refund(id):
+    refund = Refund.query.get(id)
+    if not refund:
+        return jsonify({'error': 'Refund not found'}), 404
+
+    if request.method == 'GET':
+        return jsonify({
+            'id': refund.id,
+            'user_id': refund.user_id,
+            'reservation_id': refund.reservation_id,
+            'transaction_id': refund.transaction_id,
+            'transaction_time': refund.transaction_time,
+            'transaction_status': refund.transaction_status,
+            'payment_type': refund.payment_type,
+            'order_id': refund.order_id,
+            'status': refund.status
+        }), 200
+
+    if request.method == 'PUT':
+        data = request.json
+        if 'status' not in data or data['status'] not in ['Diterima', 'Ditolak']:
+            return jsonify({'error': 'Invalid status'}), 400
+        
+        if refund.status != 'Belum diproses':
+            return jsonify({'error': 'Refund has already been processed'}), 400
+
+        refund.status = data['status']
+        db.session.commit()
+        return jsonify({'message': f'Refund {data["status"]} successfully'}), 200
+
 
 
 if __name__ == "__main__":
