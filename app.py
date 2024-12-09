@@ -140,7 +140,49 @@ with app.app_context():
 
 
 CORS(app)
-emotion_model = load_model("model.keras")
+
+# Machine Learning
+# emotion_model = load_model("model.keras")
+
+def load_emotion_model(model_path):
+    """
+    Memuat model yang telah dilatih
+    """
+    return load_model(model_path)
+
+def preprocess_image(image):
+    """
+    Memproses gambar untuk prediksi
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    resized = cv2.resize(gray, (48, 48))
+    normalized = resized / 255.0
+    preprocessed = normalized.reshape((1, 48, 48, 1))
+    return preprocessed
+
+def predict_emotion(model, image):
+    """
+    Memprediksi emosi dari gambar
+    """
+    class_labels = ['Angry', 'Happy', 'Neutral', 'Sad', 'Surprise']
+
+    # Preprocess gambar
+    preprocessed_image = preprocess_image(image)
+
+    # Set steps_per_execution to 1 before prediction
+    model.steps_per_execution = 1
+
+    # Prediksi
+    predictions = model.predict(preprocessed_image)
+
+    # Ambil indeks dengan probabilitas tertinggi
+    predicted_class = np.argmax(predictions[0])
+
+    # Ambil label emosi dan probabilitasnya
+    emotion = class_labels[predicted_class]
+    probability = predictions[0][predicted_class]
+
+    return emotion, probability
 
 # instance
 midtrans = Midtrans(app)
@@ -201,46 +243,34 @@ def predict_emotion():
         print(f"Saving file to {file_path}")  # Debug log
         file.save(file_path)
         
-        print("Processing image")  # Debug log
+        # Crop wajah menggunakan fungsi asli
         cropped_face_path = facecrop(file_path)
         
-        if not cropped_face_path:
-            print("No face detected")  # Debug log
+        if cropped_face_path is None:
+            print("No faces detected")  # Debug log
             if os.path.exists(file_path):
                 os.remove(file_path)
             return jsonify({"error": "Tidak ada wajah terdeteksi pada gambar"}), 400
-
-        print("Loading cropped image")  # Debug log
-        img = image.load_img(
-            cropped_face_path, color_mode="grayscale", target_size=(48, 48)
-        )
         
-        x = image.img_to_array(img)
-        x = np.expand_dims(x, axis=0)
-        x /= 255.0
-
-        print("Making prediction")  # Debug log
-        predictions = emotion_model.predict(x)[0]
-        emotions = ["Marah", "Jijik", "Takut", "Senang", "Sedih", "Terkejut", "Netral"]
-        result = {
-            emotion: round(float(predictions[i]) * 100, 1)
-            for i, emotion in enumerate(emotions)
-        }
+        # Muat model
+        model = load_emotion_model("best_emotion_model_v2.keras")  # Sesuaikan path model jika berbeda
         
-        max_emotion = max(result, key=result.get)
-        max_percentage = result[max_emotion]
-
+        # Baca gambar yang dicrop
+        cropped_img = cv2.imread(cropped_face_path)
+        
+        # Prediksi emosi
+        emotion, probability = predict_emotion(model, cropped_img)
+        
         # Cleanup
         if os.path.exists(file_path):
             os.remove(file_path)
         if os.path.exists(cropped_face_path):
             os.remove(cropped_face_path)
 
-        print(f"Prediction complete: {max_emotion} ({max_percentage}%)")  # Debug log
+        print(f"Prediction complete: {emotion} ({probability:.2f})")  # Debug log
         return jsonify({
-            "result": result,
-            "max_emotion": max_emotion,
-            "max_percentage": max_percentage
+            "max_emotion": emotion,
+            "max_percentage": round(float(probability) * 100, 1)
         })
 
     except Exception as e:
