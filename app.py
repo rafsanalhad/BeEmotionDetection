@@ -150,17 +150,7 @@ def load_emotion_model(model_path):
     """
     return load_model(model_path)
 
-def preprocess_image(image):
-    """
-    Memproses gambar untuk prediksi
-    """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    resized = cv2.resize(gray, (48, 48))
-    normalized = resized / 255.0
-    preprocessed = normalized.reshape((1, 48, 48, 1))
-    return preprocessed
-
-def predict_emotion(model, image):
+def get_emotion_prediction(model, image):
     """
     Memprediksi emosi dari gambar
     """
@@ -183,6 +173,26 @@ def predict_emotion(model, image):
     probability = predictions[0][predicted_class]
 
     return emotion, probability
+
+def preprocess_image(image):
+    """
+    Memproses gambar untuk prediksi
+    """
+    # Pastikan gambar dalam mode grayscale
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    else:
+        gray = image
+
+    # Resize ke ukuran 48x48
+    resized = cv2.resize(gray, (48, 48))
+    
+    # Normalisasi
+    normalized = resized / 255.0
+    
+    # Reshape untuk model
+    preprocessed = normalized.reshape((1, 48, 48, 1))
+    return preprocessed
 
 # instance
 midtrans = Midtrans(app)
@@ -253,13 +263,13 @@ def predict_emotion():
             return jsonify({"error": "Tidak ada wajah terdeteksi pada gambar"}), 400
         
         # Muat model
-        model = load_emotion_model("best_emotion_model_v2.keras")  # Sesuaikan path model jika berbeda
+        model = load_emotion_model("model.keras")  # Sesuaikan path model jika berbeda
         
         # Baca gambar yang dicrop
         cropped_img = cv2.imread(cropped_face_path)
         
         # Prediksi emosi
-        emotion, probability = predict_emotion(model, cropped_img)
+        emotion, probability = get_emotion_prediction(model, cropped_img)
         
         # Cleanup
         if os.path.exists(file_path):
@@ -293,7 +303,7 @@ def signup():
         return jsonify({"error": "Missing required fields"}), 400
 
     # Cek apakah pengguna sudah ada
-    existing_user = User.query.filter_by(email=email).first()
+    existing_user = User.query.filter_by(email=email).first()   
     if existing_user:
         return jsonify({"error": "Email sudah terdaftar"}), 400
 
