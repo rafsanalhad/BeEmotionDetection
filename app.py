@@ -141,9 +141,6 @@ with app.app_context():
 
 CORS(app)
 
-# Machine Learning
-# emotion_model = load_model("model.keras")
-
 def load_emotion_model(model_path):
     """
     Memuat model yang telah dilatih
@@ -245,7 +242,7 @@ def predict_emotion():
             print("No filename")  # Debug log
             return jsonify({"error": "Nama file kosong"}), 400
 
-        # Save file with a unique name based on timestamp
+        # Simpan file dengan nama unik berdasarkan timestamp
         import time
         timestamp = int(time.time())
         file_path = f"uploaded_image_{timestamp}.jpg"
@@ -262,43 +259,15 @@ def predict_emotion():
                 os.remove(file_path)
             return jsonify({"error": "Tidak ada wajah terdeteksi pada gambar"}), 400
         
-        x = image.img_to_array(img)
-        x = np.expand_dims(x, axis=0)
-        x /= 255.0
-
-        print("Making prediction")  # Debug log
-        predictions = emotion_model.predict(x)[0]
+        # Muat model
+        model = load_emotion_model("best_emotion_model_v2.keras")  # Sesuaikan path model jika berbeda
         
-        # Check if predictions is None or has invalid values
-        if predictions is None or len(predictions) != 7:
-            raise ValueError("Invalid prediction values returned by the model.")
+        # Baca gambar yang dicrop
+        cropped_img = cv2.imread(cropped_face_path)
         
-        # Debug: Print raw predictions
-        print(f"Raw predictions: {predictions}")  # Debug log
+        # Prediksi emosi
+        emotion, probability = get_emotion_prediction(model, cropped_img)
         
-        emotions = ["Marah", "Jijik", "Takut", "Senang", "Sedih", "Terkejut", "Netral"]
-        result = {}
-        
-        # Ensure all predictions are numeric and valid
-        # Ensure that all predictions are valid numbers and replace None with 0
-        for i, emotion in enumerate(emotions):
-            try:
-                prediction_value = round(float(predictions[i]) * 100, 1)
-                if prediction_value is not None:
-                    result[emotion] = prediction_value
-                else:
-                    result[emotion] = 0.0  # Handle unexpected None values gracefully
-            except Exception as e:
-                result[emotion] = 0.0  # Default to 0 if something goes wrong
-                print(f"Error processing prediction for {emotion}: {e}")  # Debug log
-
-        # Before calling max(), replace None with 0 in the result dictionary
-        result = {emotion: (value if value is not None else 0.0) for emotion, value in result.items()}
-
-        # Get the emotion with the highest prediction
-        max_emotion = max(result, key=result.get)
-        max_percentage = result[max_emotion]
-
         # Cleanup
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -319,8 +288,6 @@ def predict_emotion():
         if 'cropped_face_path' in locals() and os.path.exists(cropped_face_path):
             os.remove(cropped_face_path)
         return jsonify({"error": f"Terjadi kesalahan: {str(e)}"}), 500
-
-
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
