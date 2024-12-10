@@ -245,7 +245,7 @@ def predict_emotion():
             print("No filename")  # Debug log
             return jsonify({"error": "Nama file kosong"}), 400
 
-        # Simpan file dengan nama unik berdasarkan timestamp
+        # Save file with a unique name based on timestamp
         import time
         timestamp = int(time.time())
         file_path = f"uploaded_image_{timestamp}.jpg"
@@ -262,15 +262,43 @@ def predict_emotion():
                 os.remove(file_path)
             return jsonify({"error": "Tidak ada wajah terdeteksi pada gambar"}), 400
         
-        # Muat model
-        model = load_emotion_model("model.keras")  # Sesuaikan path model jika berbeda
+        x = image.img_to_array(img)
+        x = np.expand_dims(x, axis=0)
+        x /= 255.0
+
+        print("Making prediction")  # Debug log
+        predictions = emotion_model.predict(x)[0]
         
-        # Baca gambar yang dicrop
-        cropped_img = cv2.imread(cropped_face_path)
+        # Check if predictions is None or has invalid values
+        if predictions is None or len(predictions) != 7:
+            raise ValueError("Invalid prediction values returned by the model.")
         
-        # Prediksi emosi
-        emotion, probability = get_emotion_prediction(model, cropped_img)
+        # Debug: Print raw predictions
+        print(f"Raw predictions: {predictions}")  # Debug log
         
+        emotions = ["Marah", "Jijik", "Takut", "Senang", "Sedih", "Terkejut", "Netral"]
+        result = {}
+        
+        # Ensure all predictions are numeric and valid
+        # Ensure that all predictions are valid numbers and replace None with 0
+        for i, emotion in enumerate(emotions):
+            try:
+                prediction_value = round(float(predictions[i]) * 100, 1)
+                if prediction_value is not None:
+                    result[emotion] = prediction_value
+                else:
+                    result[emotion] = 0.0  # Handle unexpected None values gracefully
+            except Exception as e:
+                result[emotion] = 0.0  # Default to 0 if something goes wrong
+                print(f"Error processing prediction for {emotion}: {e}")  # Debug log
+
+        # Before calling max(), replace None with 0 in the result dictionary
+        result = {emotion: (value if value is not None else 0.0) for emotion, value in result.items()}
+
+        # Get the emotion with the highest prediction
+        max_emotion = max(result, key=result.get)
+        max_percentage = result[max_emotion]
+
         # Cleanup
         if os.path.exists(file_path):
             os.remove(file_path)
@@ -291,6 +319,8 @@ def predict_emotion():
         if 'cropped_face_path' in locals() and os.path.exists(cropped_face_path):
             os.remove(cropped_face_path)
         return jsonify({"error": f"Terjadi kesalahan: {str(e)}"}), 500
+
+
 
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
@@ -501,12 +531,14 @@ def get_reservations():
             return jsonify({"error": "User not found"}), 404
 
         if user.role == 'admin':
-            reservations = Reservation.query.all()
+            # Sort descending by date or id
+            reservations = Reservation.query.order_by(Reservation.date.desc()).all()
         else:
-            reservations = Reservation.query.filter_by(user_id=user_id).all()
+            reservations = Reservation.query.filter_by(user_id=user_id).order_by(Reservation.date.desc()).all()
 
         reservations_data = [
-            {   "id": r.id,
+            {   
+                "id": r.id,
                 "user_id": r.user_id,
                 "username": r.user.username,
                 "date": r.date,
@@ -697,7 +729,7 @@ def delete_reservation(reservation_id):
             status="Belum diproses",
         )
         db.session.add(new_refund)
-        db.session.add(new_notification)
+        db.session.add(new_notification) 
 
         # Hapus reservasi dan transaksi
         db.session.delete(transaction)
@@ -711,21 +743,28 @@ def delete_reservation(reservation_id):
 
 @app.route('/refunds', methods=['GET'])
 def get_all_refunds():
-    refunds = Refund.query.all()
-    result = []
-    for refund in refunds:
-        result.append({
-            'id': refund.id,
-            'user_id': refund.user_id,
-            'reservation_id': refund.reservation_id,
-            'transaction_id': refund.transaction_id,
-            'transaction_time': refund.transaction_time,
-            'transaction_status': refund.transaction_status,
-            'payment_type': refund.payment_type,
-            'order_id': refund.order_id,
-            'status': refund.status
-        })
-    return jsonify(result), 200
+    try:
+        # Mengurutkan data refund secara descending berdasarkan transaction_time
+        refunds = Refund.query.order_by(Refund.transaction_time.desc()).all()
+
+        result = []
+        for refund in refunds:
+            result.append({
+                'id': refund.id,
+                'user_id': refund.user_id,
+                'reservation_id': refund.reservation_id,
+                'transaction_id': refund.transaction_id,
+                'transaction_time': refund.transaction_time,
+                'transaction_status': refund.transaction_status,
+                'payment_type': refund.payment_type,
+                'order_id': refund.order_id,
+                'status': refund.status
+            })
+
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 
 @app.route('/refunds/<int:id>', methods=['GET', 'PUT'])
 def manage_refund(id):
@@ -755,29 +794,36 @@ def manage_refund(id):
             return jsonify({'error': 'Refund has already been processed'}), 400
 
         refund.status = data['status']
-        new_notifcation = Notification(user_id=refund.user_id, message=f"Refund {data['id']} telah {data['status']}")
+        print('Refund status:', refund.status)
+        new_notifcation = Notification(user_id=refund.user_id, message=f"Refund dengan id {refund.id} telah {refund.status}")
         db.session.add(new_notifcation)
         db.session.commit()
         return jsonify({'message': f'Refund {data["status"]} successfully'}), 200
     
 @app.route('/notifications/<int:id>', methods=['GET'])
 def get_notification_by_id(id):
-    notification = Notification.query.filter_by(user_id=id).all()
-    if not notification:
-        return jsonify({'error': 'Notification not found'}), 404
-    
-    notification_data = []
-    for notificationRaw in notification:
-        notificationTemp = {
-        'id': notificationRaw.id,
-        'user_id': notificationRaw.user_id,
-        'message': notificationRaw.message,
-        'status': notificationRaw.status,
-        'timestamp': notificationRaw.timestamp
-        }
-        notification_data.append(notificationTemp)
+    try:
+        # Mengurutkan data notifikasi secara descending berdasarkan timestamp
+        notifications = Notification.query.filter_by(user_id=id).order_by(Notification.timestamp.desc()).all()
 
-    return jsonify({'notif': notification_data}), 200
+        if not notifications:
+            return jsonify({'error': 'Notifications not found'}), 404
+
+        notification_data = []
+        for notification in notifications:
+            notificationTemp = {
+                'id': notification.id,
+                'user_id': notification.user_id,
+                'message': notification.message,
+                'status': notification.status,
+                'timestamp': notification.timestamp
+            }
+            notification_data.append(notificationTemp)
+
+        return jsonify({'notif': notification_data}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 
 
 
