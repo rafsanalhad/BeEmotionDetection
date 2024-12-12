@@ -313,6 +313,9 @@ def signup():
     existing_user = User.query.filter_by(email=email).first()   
     if existing_user:
         return jsonify({"error": "Email sudah terdaftar"}), 400
+    existing_username = User.query.filter_by(username=username).first()
+    if existing_username:
+        return jsonify({"error": "Username sudah terdaftar"}), 400
 
     # Hash password dengan metode yang valid
     hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
