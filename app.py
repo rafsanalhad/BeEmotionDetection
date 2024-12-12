@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, render_template
 from flask_cors import CORS  # Tambahkan ini
 from keras.models import load_model
 from keras.preprocessing import image
@@ -13,10 +13,12 @@ import time
 from flask_midtrans import Midtrans
 from dotenv import load_dotenv
 from datetime import datetime
+from itsdangerous import URLSafeTimedSerializer
+from flask_mail import Mail, Message
 #import mysqlclient
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='./templates')
 
 # Konfigurasi dari .env
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SQLALCHEMY_DATABASE_URI')
@@ -28,7 +30,15 @@ app.config['MIDTRANS_CLIENT_KEY'] = os.getenv('MIDTRANS_CLIENT_KEY')
 app.config['MIDTRANS_SERVER_KEY'] = os.getenv('MIDTRANS_SERVER_KEY')
 app.config['MIDTRANS_IS_PRODUCTION'] = os.getenv('MIDTRANS_IS_PRODUCTION') == 'True'
 
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = os.getenv('MAIL_USERNAME')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')
+
 db = SQLAlchemy(app)
+mail = Mail(app)
+serializer = URLSafeTimedSerializer(os.getenv('SECRET_KEY'))
 
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -790,6 +800,72 @@ def get_notification_by_id(id):
         return jsonify({'notif': notification_data}), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+# Forgot Password Endpoint
+@app.route('/forgot-password', methods=['POST'])
+def forgot_password():
+    if not request.is_json:
+        return jsonify({'error': 'Request must be in JSON format.'}), 400
+    
+    data = request.json
+    if not data:
+        return jsonify({'error': 'Request body is missing.'}), 400
+
+    email = data.get('email')
+    if not email:
+        return jsonify({'error': 'Email is required.'}), 400
+
+    # user = User.query.filter_by(email=email).first()
+    # if not user:
+    #     return jsonify({'error': 'User with this email does not exist.'}), 404
+
+    # Generate password reset token
+    token = serializer.dumps(email, salt='password-reset-salt')
+    reset_url = f"{os.getenv('BASE_URL')}/reset-password/{token}"
+
+    # Send email
+    try:
+        msg = Message('Password Reset Request', sender=app.config['MAIL_USERNAME'], recipients=[email])
+        msg.body = f"Click the link to reset your password: {reset_url}"
+        mail.send(msg)
+        return jsonify({'message': 'Password reset email sent.'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to send email: {str(e)}'}), 500
+
+
+@app.route('/reset-password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    if request.method == 'GET':
+        return render_template('reset_password_form.html', token=token, message=None, error=None)
+    
+    if request.method == 'POST':
+        try:
+            # Verifikasi token
+            email = serializer.loads(token, salt='password-reset-salt', max_age=3600)
+        except Exception:
+            # Jika token tidak valid
+            return render_template('reset_password_form.html', token=token, message=None, error="Invalid or expired token.")
+        
+        data = request.form
+        old_password = data.get('old_password')
+        new_password = data.get('new_password')
+
+        # Validasi password lama
+        user = User.query.filter_by(email=email).first()
+        if not user or not check_password_hash(user.password, old_password):
+            return render_template('reset_password_form.html', token=token, message=None, error="Old password is incorrect.")
+        
+        # Validasi password baru
+        if not new_password:
+            return render_template('reset_password_form.html', token=token, message=None, error="New password is required.")
+
+        # Update password pengguna
+        user.password = generate_password_hash(new_password)
+        db.session.commit()
+
+        # Return success message if password reset is successful
+        return render_template('reset_password_form.html', token=token, message="Password reset successfully.", error=None)
+
 
 
 
